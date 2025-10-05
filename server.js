@@ -1,38 +1,33 @@
 const express = require('express');
 const app = express();
 const cors = require('cors');
-// La librería dotenv se usa para leer .env LÓCALMENTE. 
-// En Render, process.env ya está disponible, pero la dejamos por si desarrollas en local.
+// La librería dotenv se usa solo para desarrollo local, pero la mantenemos.
 require('dotenv').config(); 
 const mongoose = require('mongoose');
 const { Schema } = mongoose;
 
-// ************************************************
+// ================================================
 // 🛑 CONEXIÓN A MONGODB
-// ************************************************
+// ================================================
 
 const MONGO_URI = process.env.MONGO_URI;
 
-// Verificamos si la URI existe antes de intentar conectar
+// Bloque de conexión robusto
 if (!MONGO_URI) {
-    console.error("FATAL ERROR: MONGO_URI is not defined in environment variables. Please check your Render configuration.");
-    // No cerraremos la app inmediatamente, pero loguearemos el error.
-    // La conexión a Mongoose fallará en el .catch.
+    console.error("FATAL ERROR: MONGO_URI is not defined in environment variables. Check Render or Replit configuration.");
 }
 
-// Intentamos la conexión. Si MONGO_URI es 'undefined', Mongoose lo atrapará en el .catch
 mongoose.connect(MONGO_URI)
   .then(() => console.log('MongoDB connected successfully'))
   .catch(err => {
-      console.error('MongoDB connection failed. Check MONGO_URI variable.');
-      // El error ECONNREFUSED es capturado aquí si falla el fallback
+      console.error('MongoDB connection failed! Check MONGO_URI value and MongoDB Atlas IP access.');
       console.error(err.message); 
   });
 
 
-// ************************************************
+// ================================================
 // SCHEMAS Y MODELOS
-// ************************************************
+// ================================================
 
 const userSchema = new Schema({
   username: String
@@ -48,26 +43,25 @@ const exerciseSchema = new Schema({
 const Exercise = mongoose.model('Exercise', exerciseSchema);
 
 
-// ************************************************
+// ================================================
 // MIDDLEWARES
-// ************************************************
+// ================================================
 
 app.use(cors());
-// Usamos urlencoded para manejar los datos del formulario (form data)
+// Middleware para parsear form data (necesario para las peticiones POST de FCC)
 app.use(express.urlencoded({ extended: true })); 
-app.use(express.json()); // Necesario para manejar cuerpos JSON
+app.use(express.json()); 
 app.use(express.static('public'));
 
 app.get('/', (req, res) => {
   res.sendFile(__dirname + '/views/index.html');
 });
 
-
-// ************************************************
+// ================================================
 // RUTAS DE USUARIOS
-// ************************************************
+// ================================================
 
-// 4. GET /api/users: Obtener lista de todos los usuarios
+// GET /api/users: Obtener lista de todos los usuarios
 app.get("/api/users", async (req, res) => {
   try {
     const users = await User.find({}).select("_id username");
@@ -77,18 +71,18 @@ app.get("/api/users", async (req, res) => {
   }
 });
 
-// 2. POST /api/users: Crear un nuevo usuario
+// POST /api/users: Crear un nuevo usuario
 app.post("/api/users", async (req, res) => {
   const { username } = req.body;
   
   if (!username) {
-    return res.json({ error: "Username is required" });
+    return res.status(400).json({ error: "Username is required" });
   }
 
   const userObj = new User({ username });
   try {
     const user = await userObj.save();
-    // 3. Respuesta: objeto con username y _id
+    // Respuesta: objeto con username y _id (formato exacto de FCC)
     res.json({
         username: user.username,
         _id: user._id
@@ -99,11 +93,11 @@ app.post("/api/users", async (req, res) => {
 });
 
 
-// ************************************************
+// ================================================
 // RUTAS DE EJERCICIOS
-// ************************************************
+// ================================================
 
-// 7. POST /api/users/:_id/exercises: Agregar un ejercicio
+// POST /api/users/:_id/exercises: Agregar un ejercicio
 app.post("/api/users/:_id/exercises", async (req, res) => {
   const id = req.params._id;
   const { description, duration, date } = req.body;
@@ -128,20 +122,20 @@ app.post("/api/users/:_id/exercises", async (req, res) => {
       user_id: user._id,
       description,
       duration: durationNum,
-      // 7. Si no se proporciona fecha, se usa la fecha actual
+      // Si no se proporciona fecha, se usa la fecha actual.
       date: date ? new Date(date) : new Date() 
     });
     
     const exercise = await exerciseObj.save();
 
-    // 8. Respuesta: objeto de usuario con campos de ejercicio
+    // 🛑 Respuesta: objeto de usuario con campos de ejercicio (formato FCC)
     res.json({
       username: user.username,
       description: exercise.description,
       duration: exercise.duration,
-      // 15. Formato DateString es CRÍTICO para pasar el test
+      // CRÍTICO: Usar toDateString()
       date: new Date(exercise.date).toDateString(), 
-      _id: user._id,
+      _id: user._id, // ID del USUARIO
     });
     
   } catch (err) {
@@ -151,11 +145,11 @@ app.post("/api/users/:_id/exercises", async (req, res) => {
 });
 
 
-// ************************************************
+// ================================================
 // RUTAS DE REGISTRO (LOGS)
-// ************************************************
+// ================================================
 
-// 9. GET /api/users/:_id/logs: Recuperar el registro de ejercicios
+// GET /api/users/:_id/logs: Recuperar el registro de ejercicios con filtros
 app.get("/api/users/:_id/logs", async (req, res) => {
   const { from, to, limit } = req.query;
   const id = req.params._id;
@@ -169,7 +163,7 @@ app.get("/api/users/:_id/logs", async (req, res) => {
   let dateObj = {};
   let filter = { user_id: id };
   
-  // 16. Filtros 'from' y 'to'
+  // Filtros 'from' y 'to' (yyyy-mm-dd)
   if (from) {
     dateObj["$gte"] = new Date(from);
   }
@@ -181,19 +175,19 @@ app.get("/api/users/:_id/logs", async (req, res) => {
     filter.date = dateObj;
   }
   
-  // 16. Filtro 'limit'
+  // Filtro 'limit'
   const limitNum = parseInt(limit);
-  // Si limit es NaN o 0, Mongoose no aplica límite, que es el comportamiento deseado.
+  // Si limit es inválido (NaN) o 0, Mongoose no aplica límite, lo cual es correcto.
   const exercises = await Exercise.find(filter).limit(limitNum || 0); 
 
-  // 12. Mapear los ejercicios al formato requerido
+  // Mapear los ejercicios al formato requerido
   const log = exercises.map(ex => ({
-    description: ex.description, // 13. Debe ser string
-    duration: ex.duration,       // 14. Debe ser número
-    date: ex.date.toDateString() // 15. Debe ser DateString
+    description: ex.description, 
+    duration: ex.duration,       
+    date: ex.date.toDateString() // CRÍTICO: Formato DateString
   }));
 
-  // 10, 11. Respuesta con count y log array
+  // Respuesta con count y log array
   res.json({
     username: user.username,
     count: exercises.length,
@@ -203,10 +197,11 @@ app.get("/api/users/:_id/logs", async (req, res) => {
 });
 
 
-// ************************************************
+// ================================================
 // INICIO DEL SERVIDOR
-// ************************************************
+// ================================================
 
+// Render usa process.env.PORT, en local usamos 3000
 const listener = app.listen(process.env.PORT || 3000, () => {
   console.log('Your app is listening on port ' + listener.address().port);
 });
