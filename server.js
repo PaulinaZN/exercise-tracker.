@@ -1,20 +1,19 @@
 const express = require('express');
 const app = express();
 const cors = require('cors');
-// La librería dotenv se usa solo para desarrollo local, pero la mantenemos.
 require('dotenv').config(); 
 const mongoose = require('mongoose');
 const { Schema } = mongoose;
 
 // ================================================
-// 🛑 CONEXIÓN A MONGODB
+// CONEXIÓN A MONGODB
 // ================================================
 
 const MONGO_URI = process.env.MONGO_URI;
 
 // Bloque de conexión robusto
 if (!MONGO_URI) {
-    console.error("FATAL ERROR: MONGO_URI is not defined in environment variables. Check Render or Replit configuration.");
+    console.error("FATAL ERROR: MONGO_URI is not defined in environment variables.");
 }
 
 mongoose.connect(MONGO_URI)
@@ -48,7 +47,7 @@ const Exercise = mongoose.model('Exercise', exerciseSchema);
 // ================================================
 
 app.use(cors());
-// Middleware para parsear form data (necesario para las peticiones POST de FCC)
+// Middleware CRÍTICO: Necesario para que req.body lea 'form data'
 app.use(express.urlencoded({ extended: true })); 
 app.use(express.json()); 
 app.use(express.static('public'));
@@ -61,19 +60,10 @@ app.get('/', (req, res) => {
 // RUTAS DE USUARIOS
 // ================================================
 
-// GET /api/users: Obtener lista de todos los usuarios
-app.get("/api/users", async (req, res) => {
-  try {
-    const users = await User.find({}).select("_id username");
-    res.json(users);
-  } catch (error) {
-    res.status(500).json({ error: "Could not retrieve users" });
-  }
-});
-
-// POST /api/users: Crear un nuevo usuario
+// 2, 3. POST /api/users: Crear un nuevo usuario
 app.post("/api/users", async (req, res) => {
-  const { username } = req.body;
+  // Aseguramos que solo se tome el username del body
+  const { username } = req.body; 
   
   if (!username) {
     return res.status(400).json({ error: "Username is required" });
@@ -92,17 +82,27 @@ app.post("/api/users", async (req, res) => {
   }
 });
 
+// 4, 5, 6. GET /api/users: Obtener lista de todos los usuarios
+app.get("/api/users", async (req, res) => {
+  try {
+    // Selectamos SOLO _id y username para el formato exacto de FCC
+    const users = await User.find({}).select("_id username");
+    res.json(users);
+  } catch (error) {
+    res.status(500).json({ error: "Could not retrieve users" });
+  }
+});
+
 
 // ================================================
 // RUTAS DE EJERCICIOS
 // ================================================
 
-// POST /api/users/:_id/exercises: Agregar un ejercicio
+// 7, 8. POST /api/users/:_id/exercises: Agregar un ejercicio
 app.post("/api/users/:_id/exercises", async (req, res) => {
   const id = req.params._id;
   const { description, duration, date } = req.body;
 
-  // 🛑 Validación: description y duration son requeridos
   if (!description || !duration) {
     return res.status(400).json({ error: "Description and duration are required fields." });
   }
@@ -122,13 +122,12 @@ app.post("/api/users/:_id/exercises", async (req, res) => {
       user_id: user._id,
       description,
       duration: durationNum,
-      // Si no se proporciona fecha, se usa la fecha actual.
       date: date ? new Date(date) : new Date() 
     });
     
     const exercise = await exerciseObj.save();
 
-    // 🛑 Respuesta: objeto de usuario con campos de ejercicio (formato FCC)
+    // Respuesta con el formato exacto requerido por FCC
     res.json({
       username: user.username,
       description: exercise.description,
@@ -149,7 +148,7 @@ app.post("/api/users/:_id/exercises", async (req, res) => {
 // RUTAS DE REGISTRO (LOGS)
 // ================================================
 
-// GET /api/users/:_id/logs: Recuperar el registro de ejercicios con filtros
+// 9-16. GET /api/users/:_id/logs: Logs con filtros
 app.get("/api/users/:_id/logs", async (req, res) => {
   const { from, to, limit } = req.query;
   const id = req.params._id;
@@ -177,7 +176,6 @@ app.get("/api/users/:_id/logs", async (req, res) => {
   
   // Filtro 'limit'
   const limitNum = parseInt(limit);
-  // Si limit es inválido (NaN) o 0, Mongoose no aplica límite, lo cual es correcto.
   const exercises = await Exercise.find(filter).limit(limitNum || 0); 
 
   // Mapear los ejercicios al formato requerido
@@ -201,7 +199,6 @@ app.get("/api/users/:_id/logs", async (req, res) => {
 // INICIO DEL SERVIDOR
 // ================================================
 
-// Render usa process.env.PORT, en local usamos 3000
 const listener = app.listen(process.env.PORT || 3000, () => {
   console.log('Your app is listening on port ' + listener.address().port);
 });
